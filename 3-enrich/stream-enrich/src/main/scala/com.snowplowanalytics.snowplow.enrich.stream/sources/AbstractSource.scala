@@ -35,7 +35,8 @@ import Scalaz._
 import org.json4s.{ThreadLocal => _, _}
 import org.json4s.JsonDSL._
 import org.json4s.jackson.JsonMethods._
-import org.joda.time.DateTime
+import org.joda.time.{DateTime, DateTimeZone}
+import org.joda.time.format.DateTimeFormat
 
 import common.{EtlPipeline, ValidatedMaybeCollectorPayload}
 import common.enrichments.EnrichmentRegistry
@@ -122,10 +123,13 @@ abstract class AbstractSource(
   // Initialize the sink to output enriched events to.
   protected val sink = getThreadLocalSink(Good)
 
+  protected val piiSink = getThreadLocalSink(Pii)
+
   protected val badSink = getThreadLocalSink(Bad)
 
   private def getStreamName(inputType: InputType): String = inputType match {
     case Good => config.streams.out.enriched
+    case Pii => config.streams.out.pii
     case Bad => config.streams.out.bad
   }
 
@@ -153,16 +157,44 @@ abstract class AbstractSource(
   }
 
   implicit val resolver: Resolver = igluResolver
+  private val formatter           = DateTimeFormat.forPattern("yyyy-MM-dd HH:mm:ss.SSS")
+  private val PII_EVENT_NAME      = "pii_transformation"
+  private val PII_EVENT_VENDOR    = "com.snowplowanalytics.snowplow"
+  private val PII_EVENT_FORMAT    = "jsonschema"
+  private val PII_EVENT_VERSION   = "1-0-0"
+  private val PII_EVENT_PLATFORM  = "stream-enrich"
+  def getPiiEvent(event: EnrichedEvent): Option[EnrichedEvent] =
+    Option(event.pii)
+      .filter(_.nonEmpty)
+      .map(piiStr => {
+        val ee = new EnrichedEvent
+        ee.unstruct_event = event.pii
+        ee.app_id = event.app_id
+        ee.platform = PII_EVENT_PLATFORM
+        ee.etl_tstamp = formatter.print(DateTime.now(DateTimeZone.UTC))
+        ee.collector_tstamp = event.collector_tstamp
+        ee.dvce_created_tstamp = event.dvce_created_tstamp
+        ee.event = PII_EVENT_NAME
+        ee.event_id = UUID.randomUUID().toString
+        ee.derived_tstamp = ee.etl_tstamp
+        ee.event_vendor = PII_EVENT_VENDOR
+        ee.event_format = PII_EVENT_FORMAT
+        ee.event_name = PII_EVENT_NAME
+        ee.event_version = PII_EVENT_VERSION
+        ee.v_etl =
+          s"kinesis-${generated.Settings.version}-common-${generated.Settings.commonEnrichVersion}"
+        ee
+      })
 
   // Iterate through an enriched EnrichedEvent object and tab separate
   // the fields to a string.
-  def tabSeparateEnrichedEvent(output: EnrichedEvent): String = {
-    output.getClass.getDeclaredFields
+  def tabSeparateEnrichedEvent(output: EnrichedEvent): String =
+   output.getClass.getDeclaredFields
+    .filterNot(_.getName.equals("pii"))
     .map{ field =>
       field.setAccessible(true)
       Option(field.get(output)).getOrElse("")
     }.mkString("\t")
-  }
 
   def getProprertyValue(ee: EnrichedEvent, property: String): String =
     property match {
@@ -180,10 +212,10 @@ abstract class AbstractSource(
    * Convert incoming binary Thrift records to lists of enriched events
    *
    * @param binaryData Thrift raw event
-   * @return List containing successful or failed events, each with a
-   *         partition key
+   * @return List containing failed, successful and, if present, pii events. Successful and failed, each specify a
+   *         partition key.
    */
-  def enrichEvents(binaryData: Array[Byte]): List[Validation[(String, String), (String, String)]] = {
+  def enrichEvents(binaryData: Array[Byte]): List[Validation[(String, String), (String, String, Option[String])]] = {
     val canonicalInput: ValidatedMaybeCollectorPayload = ThriftLoader.toCollectorPayload(binaryData)
     val processedEvents: List[ValidationNel[String, EnrichedEvent]] = EtlPipeline.processEvents(
       enrichmentRegistry,
@@ -193,7 +225,10 @@ abstract class AbstractSource(
     processedEvents.map(validatedMaybeEvent => {
       validatedMaybeEvent match {
         case Success(co) =>
-          (tabSeparateEnrichedEvent(co), getProprertyValue(co, config.streams.out.partitionKey)).success
+          (
+            tabSeparateEnrichedEvent(co),
+            getProprertyValue(co, config.streams.out.partitionKey),
+            getPiiEvent(co).map(tabSeparateEnrichedEvent)).success
         case Failure(errors) =>
           val line = new String(Base64.encodeBase64(binaryData), UTF_8)
           (BadRow(line, errors).toCompactJson -> Random.nextInt.toString).fail
@@ -225,16 +260,27 @@ abstract class AbstractSource(
     val (tooBigSuccesses, smallEnoughSuccesses) = successes partition { s => isTooLarge(s._1) }
 
     val sizeBasedFailures = for {
-      (value, key) <- tooBigSuccesses
+      (value, key, _) <- tooBigSuccesses
       m <- MaxRecordSize
     } yield AbstractSource.oversizedSuccessToFailure(value, m) -> key
 
-    val successesTriggeredFlush = sink.get.map(_.storeEnrichedEvents(smallEnoughSuccesses))
-    val failuresTriggeredFlush = badSink.get.map(_.storeEnrichedEvents(failures ++ sizeBasedFailures))
-    if (successesTriggeredFlush == Some(true) || failuresTriggeredFlush == Some(true)) {
+    val anonymizedSuccesses = smallEnoughSuccesses.map {
+      case (event, partition, _) => (event, partition)
+    }
+    val piiSuccesses = smallEnoughSuccesses.flatMap {
+      case (_, partition, pii) => pii.map((_, partition))
+    }
+    val successesTriggeredFlush = sink.get.map(_.storeEnrichedEvents(anonymizedSuccesses))
+    val piiTriggeredFlush       = piiSink.get.map(_.storeEnrichedEvents(piiSuccesses))
+    val failuresTriggeredFlush =
+      badSink.get.map(_.storeEnrichedEvents(failures ++ sizeBasedFailures))
+    if (successesTriggeredFlush.contains(true) ||
+      failuresTriggeredFlush.contains(true) ||
+      piiTriggeredFlush.contains(true)) {
 
       // Block until the records have been sent to Kinesis
       sink.get.foreach(_.flush)
+      piiSink.get.foreach(_.flush)
       badSink.get.foreach(_.flush)
       true
     } else {
