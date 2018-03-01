@@ -286,7 +286,6 @@ abstract class AbstractSource(
     } else {
       false
     }
-
   }
 
   /**

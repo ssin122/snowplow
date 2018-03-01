@@ -89,8 +89,9 @@ object EnrichApp {
         .text(s"Iglu resolver file, $regexMsg")
         .action((r: String, c: FileConfig) => c.copy(resolver = r))
         .validate(_ match {
-          case FilepathRegex(_) | DynamoDBRegex(_, _, _) => success
-          case _ => failure(s"Resolver doesn't match accepted uris: $regexMsg")
+          case FilepathRegex(_)       => success
+          case DynamoDBRegex(_, _, _) => success
+          case _                      => failure(s"Resolver doesn't match accepted uris: $regexMsg")
         })
       opt[String]("enrichments").optional().valueName("<enrichment directory uri>")
         .text(s"Directory of enrichment configuration JSONs, $regexMsg")
@@ -164,6 +165,7 @@ object EnrichApp {
     registry: EnrichmentRegistry,
     tracker: Option[Tracker]
   ): Unit = {
+
     val source = ec.sourceType match {
       case KafkaSource => new KafkaSource(ec, igluResolver, registry, tracker)
       case KinesisSource => new KinesisSource(ec, igluResolver, registry, tracker)

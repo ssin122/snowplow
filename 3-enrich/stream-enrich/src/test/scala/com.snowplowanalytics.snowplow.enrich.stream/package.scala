@@ -12,30 +12,12 @@
  * implied.  See the Apache License Version 2.0 for the specific language
  * governing permissions and limitations there under.
  */
+package com.snowplowanalytics.snowplow.enrich
 
-package com.snowplowanalytics
-package snowplow
-package enrich
-package stream
-package sources
+import scala.util.matching.Regex
 
-import iglu.client.Resolver
-import common.enrichments.EnrichmentRegistry
-import model.EnrichConfig
-import scalatracker.Tracker
-
-/**
- * Source to allow the testing framework to enrich events
- * using the same methods from AbstractSource as the other
- * sources.
- */
-class TestSource(
-  config: EnrichConfig,
-  igluResolver: Resolver,
-  enrichmentRegistry: EnrichmentRegistry,
-  tracker: Option[Tracker]
-) extends AbstractSource(config, igluResolver, enrichmentRegistry, tracker) {
-
-  override def run(): Unit =
-    throw new RuntimeException("run() should not be called on TestSource")
+package object stream {
+  type StringOrRegex = Either[String, Regex]
+  val JustString = Left
+  val JustRegex  = Right
 }
