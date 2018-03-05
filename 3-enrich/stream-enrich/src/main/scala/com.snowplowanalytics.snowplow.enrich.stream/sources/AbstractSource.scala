@@ -41,13 +41,14 @@ import org.joda.time.format.DateTimeFormat
 import common.{EtlPipeline, ValidatedMaybeCollectorPayload}
 import common.enrichments.EnrichmentRegistry
 import common.loaders.ThriftLoader
-import common.outputs.{EnrichedEvent, BadRow}
+import common.outputs.{BadRow, EnrichedEvent}
 import iglu.client.Resolver
 import model._
 import scalatracker.Tracker
 import sinks._
 
 object AbstractSource {
+
   /** Kinesis records must not exceed 1MB */
   val MaxBytes = 1000000L
 
@@ -63,14 +64,16 @@ object AbstractSource {
 
       val jsonWithoutLine = parse(value) removeField {
         case ("line", _) => true
-        case _ => false
+        case _           => false
       }
 
-      compact(render({("size" -> size): JValue} merge jsonWithoutLine))
+      compact(render({ ("size" -> size): JValue } merge jsonWithoutLine))
 
     } catch {
       case NonFatal(e) =>
-        BadRow.oversizedRow(size, NonEmptyList("Unable to extract errors field from original oversized bad row JSON"))
+        BadRow.oversizedRow(
+          size,
+          NonEmptyList("Unable to extract errors field from original oversized bad row JSON"))
     }
   }
 
@@ -83,7 +86,10 @@ object AbstractSource {
    */
   def oversizedSuccessToFailure(value: String, maximum: Long): String = {
     val size = AbstractSource.getSize(value)
-    BadRow.oversizedRow(size, NonEmptyList(s"Enriched event size of $size bytes is greater than allowed maximum of $maximum"))
+    BadRow.oversizedRow(
+      size,
+      NonEmptyList(
+        s"Enriched event size of $size bytes is greater than allowed maximum of $maximum"))
   }
 
   /**
@@ -129,8 +135,8 @@ abstract class AbstractSource(
 
   private def getStreamName(inputType: InputType): String = inputType match {
     case Good => config.streams.out.enriched
-    case Pii => config.streams.out.pii
-    case Bad => config.streams.out.bad
+    case Pii  => config.streams.out.pii
+    case Bad  => config.streams.out.bad
   }
 
   /**
@@ -141,18 +147,24 @@ abstract class AbstractSource(
    * @return ThreadLocal sink
    */
   private def getThreadLocalSink(inputType: InputType) = new ThreadLocal[Option[ISink]] {
-    val streamName = getStreamName(inputType)
-    lazy val kafkaConfig = config.streams.kafka
+    val streamName         = getStreamName(inputType)
+    lazy val kafkaConfig   = config.streams.kafka
     lazy val kinesisConfig = config.streams.kinesis
-    lazy val nsqConfig = config.streams.nsq
-    val bufferConfig = config.streams.buffer
+    lazy val nsqConfig     = config.streams.nsq
+    val bufferConfig       = config.streams.buffer
     override def initialValue = config.sinkType match {
       case KafkaSink =>
         new KafkaSink(kafkaConfig, bufferConfig, inputType, streamName, tracker).some
-      case KinesisSink => new KinesisSink(kinesisProvider, kinesisConfig, bufferConfig, inputType,
-        streamName, tracker).some
+      case KinesisSink =>
+        new KinesisSink(
+          kinesisProvider,
+          kinesisConfig,
+          bufferConfig,
+          inputType,
+          streamName,
+          tracker).some
       case StdouterrSink => new StdouterrSink(inputType).some
-      case NsqSink => new NsqSink(nsqConfig, streamName).some
+      case NsqSink       => new NsqSink(nsqConfig, streamName).some
     }
   }
 
@@ -189,23 +201,24 @@ abstract class AbstractSource(
   // Iterate through an enriched EnrichedEvent object and tab separate
   // the fields to a string.
   def tabSeparateEnrichedEvent(output: EnrichedEvent): String =
-   output.getClass.getDeclaredFields
-    .filterNot(_.getName.equals("pii"))
-    .map{ field =>
-      field.setAccessible(true)
-      Option(field.get(output)).getOrElse("")
-    }.mkString("\t")
+    output.getClass.getDeclaredFields
+      .filterNot(_.getName.equals("pii"))
+      .map { field =>
+        field.setAccessible(true)
+        Option(field.get(output)).getOrElse("")
+      }
+      .mkString("\t")
 
   def getProprertyValue(ee: EnrichedEvent, property: String): String =
     property match {
-      case "event_id" => ee.event_id
+      case "event_id"          => ee.event_id
       case "event_fingerprint" => ee.event_fingerprint
-      case "domain_userid" => ee.domain_userid
-      case "network_userid" => ee.network_userid
-      case "user_ipaddress" => ee.user_ipaddress
-      case "domain_sessionid" => ee.domain_sessionid
-      case "user_fingerprint" => ee.user_fingerprint
-      case _ => UUID.randomUUID().toString
+      case "domain_userid"     => ee.domain_userid
+      case "network_userid"    => ee.network_userid
+      case "user_ipaddress"    => ee.user_ipaddress
+      case "domain_sessionid"  => ee.domain_sessionid
+      case "user_fingerprint"  => ee.user_fingerprint
+      case _                   => UUID.randomUUID().toString
     }
 
   /**
@@ -215,7 +228,8 @@ abstract class AbstractSource(
    * @return List containing failed, successful and, if present, pii events. Successful and failed, each specify a
    *         partition key.
    */
-  def enrichEvents(binaryData: Array[Byte]): List[Validation[(String, String), (String, String, Option[String])]] = {
+  def enrichEvents(binaryData: Array[Byte]): List[
+    Validation[(String, String), (String, String, Option[String])]] = {
     val canonicalInput: ValidatedMaybeCollectorPayload = ThriftLoader.toCollectorPayload(binaryData)
     val processedEvents: List[ValidationNel[String, EnrichedEvent]] = EtlPipeline.processEvents(
       enrichmentRegistry,
@@ -246,22 +260,25 @@ abstract class AbstractSource(
    * @return Whether to checkpoint
    */
   def enrichAndStoreEvents(binaryData: List[Array[Byte]]): Boolean = {
-    val enrichedEvents = binaryData.flatMap(enrichEvents(_))
-    val successes = enrichedEvents collect { case Success(s) => s }
+    val enrichedEvents         = binaryData.flatMap(enrichEvents(_))
+    val successes              = enrichedEvents collect { case Success(s) => s }
     val sizeUnadjustedFailures = enrichedEvents collect { case Failure(s) => s }
     val failures = sizeUnadjustedFailures map {
-      case (value, key) => if (! isTooLarge(value)) {
-        value -> key
-      } else {
-        AbstractSource.adjustOversizedFailureJson(value) -> key
-      }
+      case (value, key) =>
+        if (!isTooLarge(value)) {
+          value -> key
+        } else {
+          AbstractSource.adjustOversizedFailureJson(value) -> key
+        }
     }
 
-    val (tooBigSuccesses, smallEnoughSuccesses) = successes partition { s => isTooLarge(s._1) }
+    val (tooBigSuccesses, smallEnoughSuccesses) = successes partition { s =>
+      isTooLarge(s._1)
+    }
 
     val sizeBasedFailures = for {
       (value, key, _) <- tooBigSuccesses
-      m <- MaxRecordSize
+      m               <- MaxRecordSize
     } yield AbstractSource.oversizedSuccessToFailure(value, m) -> key
 
     val anonymizedSuccesses = smallEnoughSuccesses.map {
@@ -295,7 +312,7 @@ abstract class AbstractSource(
    * @return boolean size decision
    */
   private def isTooLarge(evt: String): Boolean = MaxRecordSize match {
-    case None => false
+    case None    => false
     case Some(m) => AbstractSource.getSize(evt) >= m
   }
 
