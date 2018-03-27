@@ -135,9 +135,8 @@ class PiiPseudonymizerEnrichmentSpec extends Specification with ValidationMatche
     EtlPipeline.processEvents(registry, s"spark-0.0.0", new DateTime(1500000000L), input)
   }
 
-  private val ipEnrichment = IpLookupsEnrichment(Some(("geo", new URI("/ignored-in-local-mode/"), "GeoIPCity.dat")),
-                                                 Some(("isp", new URI("/ignored-in-local-mode/"), "GeoIPISP.dat")),
-                                                 None,
+  private val ipEnrichment = IpLookupsEnrichment(Some(("geo", new URI("/ignored-in-local-mode/"), "GeoIP2-City.mmdb")),
+                                                 Some(("isp", new URI("/ignored-in-local-mode/"), "GeoIP2-ISP.mmdb")),
                                                  None,
                                                  None,
                                                  true)
