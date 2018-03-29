@@ -30,6 +30,7 @@ object Dependencies {
     // Java
     val hadoopLZO        = "0.4.20"
     val elephantBird     = "4.14"
+    val jackson          = "2.9.4"
     // Scala
     val spark            = "2.2.0"
     val scalaz7          = "7.0.9"
@@ -47,6 +48,8 @@ object Dependencies {
     // Java
     val hadoopLZO        = "com.hadoop.gplcompression"    %  "hadoop-lzo"                   % V.hadoopLZO
     val elephantBird     = "com.twitter.elephantbird"     %  "elephant-bird-core"           % V.elephantBird
+    val jacksonCore      = "com.fasterxml.jackson.core"   %  "jackson-core"                 % V.jackson
+    val jacksonDatabind  = "com.fasterxml.jackson.core"   %  "jackson-databind"             % V.jackson
     // Scala
     val sparkCore        = "org.apache.spark"             %% "spark-core"                   % V.spark        % "provided"
     val sparkSQL         = "org.apache.spark"             %% "spark-sql"                    % V.spark        % "provided"
@@ -54,6 +57,7 @@ object Dependencies {
     val scopt            = "com.github.scopt"             %% "scopt"                        % V.scopt
     val commonEnrich     = "com.snowplowanalytics"        %% "snowplow-common-enrich"       % V.commonEnrich
     val igluClient       = "com.snowplowanalytics"        %% "iglu-scala-client"            % V.igluClient
+    val jacksonScala     = "com.fasterxml.jackson.module" %% "jackson-module-scala"         % V.jackson
     // Thrift
     val snowplowRawEvent = "com.snowplowanalytics"        % "snowplow-thrift-raw-event"     % V.snowplowRawEvent
     val collectorPayload = "com.snowplowanalytics"        % "collector-payload-1"           % V.collectorPayload

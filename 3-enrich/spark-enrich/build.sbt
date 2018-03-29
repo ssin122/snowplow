@@ -25,6 +25,10 @@ lazy val root = project.in(file("."))
       // Java
       Dependencies.Libraries.hadoopLZO,
       Dependencies.Libraries.elephantBird,
+      // Those dependencies are needed to resolve the conflict between maxmind's jackson (2.9.3)
+      // and spark's (2.6.7)
+      Dependencies.Libraries.jacksonCore,
+      Dependencies.Libraries.jacksonDatabind,
       // Scala
       Dependencies.Libraries.sparkCore,
       Dependencies.Libraries.sparkSQL,
@@ -32,6 +36,8 @@ lazy val root = project.in(file("."))
       Dependencies.Libraries.scopt,
       Dependencies.Libraries.commonEnrich,
       Dependencies.Libraries.igluClient,
+      // same as above
+      Dependencies.Libraries.jacksonScala,
       // Scala (test only)
       Dependencies.Libraries.specs2,
       // Thrift (test only)
